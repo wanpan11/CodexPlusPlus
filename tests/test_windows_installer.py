@@ -2,6 +2,7 @@ from pathlib import Path
 
 from codex_session_delete.installers import InstallOptions
 from codex_session_delete import __version__
+from codex_session_delete import windows_installer
 from codex_session_delete.windows_installer import build_install_shortcut_script, build_uninstall_shortcut_script
 
 
@@ -45,7 +46,7 @@ def test_default_windows_launcher_uses_current_python_executable(tmp_path):
     assert "$Python = " not in script
     assert "Get-Command python" not in script
     assert "-m codex_session_delete launch" in script
-    assert "pythonw.exe" in script or "python.exe" in script
+    assert windows_installer._default_python_executable() in script
 
 
 def test_build_uninstall_shortcut_script_removes_codex_plus_shortcuts(tmp_path):

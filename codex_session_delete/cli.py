@@ -20,6 +20,7 @@ def add_launch_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--backup-dir", type=Path, default=Path.home() / ".codex-session-delete" / "backups")
     parser.add_argument("--debug-port", type=int, default=9229)
     parser.add_argument("--helper-port", type=int, default=57321)
+    parser.add_argument("--proxy", action="store_true", default=False, help="Auto-detect and inject local proxy into Codex process environment")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -150,7 +151,7 @@ def run_launch(args: argparse.Namespace) -> int:
     stop_existing_windows_launchers()
     maybe_print_update_notice()
     try:
-        server, codex_proc = launch_and_inject(args.app_dir, args.db, args.backup_dir, args.debug_port, args.helper_port)
+        server, codex_proc = launch_and_inject(args.app_dir, args.db, args.backup_dir, args.debug_port, args.helper_port, auto_proxy=args.proxy)
     except Exception as exc:
         log_launch_failure(exc)
         raise

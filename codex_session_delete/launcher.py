@@ -152,8 +152,10 @@ def local_proxy_url() -> str | None:
     return None
 
 
-def codex_process_environment() -> dict[str, str]:
+def codex_process_environment(auto_proxy: bool = False) -> dict[str, str]:
     env = os.environ.copy()
+    if not auto_proxy:
+        return env
     if has_proxy_environment(env):
         return env
     proxy = local_proxy_url()
@@ -265,9 +267,9 @@ def activate_packaged_app(app_user_model_id: str, arguments: str) -> int:
             ole32.CoUninitialize()
 
 
-def launch_codex_app(app_dir: Path, debug_port: int) -> Any:
+def launch_codex_app(app_dir: Path, debug_port: int, auto_proxy: bool = False) -> Any:
     app_user_model_id = packaged_app_user_model_id(app_dir) if sys.platform == "win32" else None
-    env = codex_process_environment()
+    env = codex_process_environment(auto_proxy=auto_proxy)
     if app_user_model_id:
         proxy_keys = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
         previous = {key: os.environ.get(key) for key in proxy_keys}
@@ -328,7 +330,7 @@ def inject_with_retry(
     raise RuntimeError("Codex injection failed")
 
 
-def launch_and_inject(app_dir: Path | None, db_path: Path | None, backup_dir: Path, debug_port: int, helper_port: int) -> tuple[HelperServer, Any]:
+def launch_and_inject(app_dir: Path | None, db_path: Path | None, backup_dir: Path, debug_port: int, helper_port: int, auto_proxy: bool = False) -> tuple[HelperServer, Any]:
     resolved_app_dir = resolve_codex_app_dir(app_dir)
     if resolved_app_dir is None:
         raise RuntimeError("Codex App directory not found")
@@ -348,7 +350,7 @@ def launch_and_inject(app_dir: Path | None, db_path: Path | None, backup_dir: Pa
     server = start_helper(service, export_service, port=helper_port)
     codex_proc = None
     try:
-        codex_proc = launch_codex_app(resolved_app_dir, debug_port)
+        codex_proc = launch_codex_app(resolved_app_dir, debug_port, auto_proxy=auto_proxy)
         server.bridge_socket = inject_with_retry(debug_port, script_path, server.port, service, export_service, runtime)
         return server, codex_proc
     except Exception:

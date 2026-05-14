@@ -50,7 +50,22 @@ def test_launch_codex_windows_allows_devtools_websocket_origin(monkeypatch):
     assert "--remote-allow-origins=http://127.0.0.1:9229" in popen_calls[0]
 
 
-def test_launch_codex_injects_detected_local_proxy(monkeypatch):
+def test_launch_codex_injects_detected_local_proxy_with_auto_proxy(monkeypatch):
+    app_dir = Path("C:/Codex/app")
+    popen_calls = []
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    monkeypatch.delenv("HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("ALL_PROXY", raising=False)
+    monkeypatch.setattr(launcher, "local_proxy_url", lambda: "http://127.0.0.1:7897")
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda args, **kw: popen_calls.append((args, kw)))
+
+    launch_codex_app(app_dir, 9229, auto_proxy=True)
+
+    assert popen_calls[0][1]["env"]["HTTP_PROXY"] == "http://127.0.0.1:7897"
+    assert popen_calls[0][1]["env"]["HTTPS_PROXY"] == "http://127.0.0.1:7897"
+
+
+def test_default_does_not_inject_proxy(monkeypatch):
     app_dir = Path("C:/Codex/app")
     popen_calls = []
     monkeypatch.delenv("HTTP_PROXY", raising=False)
@@ -61,15 +76,15 @@ def test_launch_codex_injects_detected_local_proxy(monkeypatch):
 
     launch_codex_app(app_dir, 9229)
 
-    assert popen_calls[0][1]["env"]["HTTP_PROXY"] == "http://127.0.0.1:7897"
-    assert popen_calls[0][1]["env"]["HTTPS_PROXY"] == "http://127.0.0.1:7897"
+    assert "HTTP_PROXY" not in popen_calls[0][1]["env"]
+    assert "HTTPS_PROXY" not in popen_calls[0][1]["env"]
 
 
-def test_launch_codex_keeps_explicit_proxy(monkeypatch):
+def test_launch_codex_keeps_explicit_proxy_with_auto_proxy(monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9999")
     monkeypatch.setattr(launcher, "local_proxy_url", lambda: (_ for _ in ()).throw(AssertionError("should not auto-detect")))
 
-    env = launcher.codex_process_environment()
+    env = launcher.codex_process_environment(auto_proxy=True)
 
     assert env["HTTPS_PROXY"] == "http://127.0.0.1:9999"
 
@@ -139,7 +154,7 @@ def test_non_windows_port_selector_keeps_requested_port(monkeypatch):
 
 def test_cli_keeps_helper_server_alive_after_injection(monkeypatch):
     waited = []
-    monkeypatch.setattr(cli, "launch_and_inject", lambda *args: (FakeServer(), None))
+    monkeypatch.setattr(cli, "launch_and_inject", lambda *args, **kwargs: (FakeServer(), None))
     monkeypatch.setattr(cli, "wait_for_shutdown", lambda server, proc: waited.append(server.port))
 
     exit_code = cli.main([])
@@ -151,7 +166,7 @@ def test_cli_keeps_helper_server_alive_after_injection(monkeypatch):
 def test_cli_launch_subcommand_keeps_helper_server_alive_after_injection(monkeypatch):
     waited = []
     calls = []
-    monkeypatch.setattr(cli, "launch_and_inject", lambda *args: calls.append(args) or (FakeServer(), None))
+    monkeypatch.setattr(cli, "launch_and_inject", lambda *args, **kwargs: calls.append(args) or (FakeServer(), None))
     monkeypatch.setattr(cli, "wait_for_shutdown", lambda server, proc: waited.append(server.port))
 
     exit_code = cli.main(["launch"])
@@ -189,7 +204,7 @@ def test_launch_retries_injection_until_codex_page_is_ready(monkeypatch, tmp_pat
     attempts = []
     monkeypatch.setattr(launcher, "resolve_codex_app_dir", lambda app_dir=None: tmp_path)
     monkeypatch.setattr(launcher, "start_helper", lambda *args, **kwargs: FakeServer())
-    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args: None)
+    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args, **kwargs: None)
 
     def inject_after_retry(*args):
         attempts.append(args)
@@ -210,7 +225,7 @@ def test_launch_retries_injection_until_codex_page_is_ready(monkeypatch, tmp_pat
 def test_launch_and_inject_returns_windows_packaged_process_id(monkeypatch, tmp_path):
     monkeypatch.setattr(launcher, "resolve_codex_app_dir", lambda app_dir=None: tmp_path)
     monkeypatch.setattr(launcher, "start_helper", lambda *args, **kwargs: FakeServer())
-    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args: 1234)
+    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args, **kwargs: 1234)
     monkeypatch.setattr(launcher, "inject_with_retry", lambda *args, **kwargs: {"result": {}})
 
     server, proc = launcher.launch_and_inject(None, None, tmp_path / "backups", 9229, 57321)
@@ -226,7 +241,7 @@ def test_launch_and_inject_runs_provider_sync_before_launch_when_enabled(monkeyp
     monkeypatch.setattr(launcher, "inject_with_retry", lambda *args, **kwargs: {"result": {}})
     monkeypatch.setattr(launcher, "backend_settings", lambda: type("Settings", (), {"provider_sync_enabled": True})())
     monkeypatch.setattr(launcher, "run_provider_sync", lambda: events.append("sync") or type("Result", (), {"status": "synced", "message": "ok"})())
-    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args: events.append("launch") or 1234)
+    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args, **kwargs: events.append("launch") or 1234)
 
     launcher.launch_and_inject(None, None, tmp_path / "backups", 9229, 57321)
 
@@ -240,7 +255,7 @@ def test_launch_and_inject_skips_provider_sync_when_disabled(monkeypatch, tmp_pa
     monkeypatch.setattr(launcher, "inject_with_retry", lambda *args, **kwargs: {"result": {}})
     monkeypatch.setattr(launcher, "backend_settings", lambda: type("Settings", (), {"provider_sync_enabled": False})())
     monkeypatch.setattr(launcher, "run_provider_sync", lambda: (_ for _ in ()).throw(AssertionError("sync should not run")))
-    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args: events.append("launch") or 1234)
+    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args, **kwargs: events.append("launch") or 1234)
 
     launcher.launch_and_inject(None, None, tmp_path / "backups", 9229, 57321)
 
@@ -251,7 +266,7 @@ def test_launch_and_inject_closes_helper_when_injection_fails(monkeypatch, tmp_p
     server = FakeServer()
     monkeypatch.setattr(launcher, "resolve_codex_app_dir", lambda app_dir=None: tmp_path)
     monkeypatch.setattr(launcher, "start_helper", lambda *args, **kwargs: server)
-    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args: 1234)
+    monkeypatch.setattr(launcher, "launch_codex_app", lambda *args, **kwargs: 1234)
     monkeypatch.setattr(launcher, "inject_with_retry", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("inject failed")))
 
     with pytest.raises(RuntimeError, match="inject failed"):
@@ -309,7 +324,7 @@ def test_cli_skips_launcher_cleanup_on_non_windows(monkeypatch):
 def test_cli_launch_runs_launcher_cleanup_before_injection(monkeypatch):
     events = []
     monkeypatch.setattr(cli, "stop_existing_windows_launchers", lambda: events.append("cleanup"))
-    monkeypatch.setattr(cli, "launch_and_inject", lambda *args: events.append("launch") or (FakeServer(), None))
+    monkeypatch.setattr(cli, "launch_and_inject", lambda *args, **kwargs: events.append("launch") or (FakeServer(), None))
     monkeypatch.setattr(cli, "wait_for_shutdown", lambda server, proc: events.append("wait"))
 
     exit_code = cli.main(["launch"])
@@ -322,7 +337,7 @@ def test_cli_launch_checks_update_before_injection(monkeypatch):
     events = []
     monkeypatch.setattr(cli, "stop_existing_windows_launchers", lambda: events.append("cleanup"))
     monkeypatch.setattr(cli, "maybe_print_update_notice", lambda: events.append("check-update"))
-    monkeypatch.setattr(cli, "launch_and_inject", lambda *args: events.append("launch") or (FakeServer(), None))
+    monkeypatch.setattr(cli, "launch_and_inject", lambda *args, **kwargs: events.append("launch") or (FakeServer(), None))
     monkeypatch.setattr(cli, "wait_for_shutdown", lambda server, proc: events.append("wait"))
 
     exit_code = cli.main(["launch"])
@@ -444,7 +459,7 @@ def test_cli_remove_alias_uninstalls_with_default_options(monkeypatch):
 
 def test_cli_logs_launch_failure_for_hidden_pythonw(monkeypatch, tmp_path):
     log_path = tmp_path / "codex-plus.log"
-    monkeypatch.setattr(cli, "launch_and_inject", lambda *args: (_ for _ in ()).throw(RuntimeError("inject failed")))
+    monkeypatch.setattr(cli, "launch_and_inject", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("inject failed")))
     monkeypatch.setattr(cli, "launch_log_path", lambda: log_path)
 
     with pytest.raises(RuntimeError, match="inject failed"):
